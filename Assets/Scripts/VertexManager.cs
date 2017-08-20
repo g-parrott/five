@@ -6,13 +6,22 @@ public class VertexManager : MonoBehaviour
     public int _desiredDegree = 4;
     public float[] _desiredAngles = {36f, 72f, 108f};
 
+    public float _searchSpeed = 1f;
+    public float _optimizeSpeed = 1f;
+
     // for convenience and consistency, I store a string tag to grab all objects that are tagged with
     // "vertex"
-    public const string VertexTag = "vertex";
+    public const string VertexTag = "Vertex";
 
     // container to represent graph via adjacency lists
     private Dictionary<GameObject, List<GameObject>> _vertexMap
         = new Dictionary<GameObject, List<GameObject>>();
+
+    // queue of vertices that will be connected after computation
+    private Queue<KeyValuePair<GameObject, GameObject>> _connectQueue =
+        new Queue<KeyValuePair<GameObject, GameObject>>();
+
+    private Dictionary<GameObject, Vector3> _influenceMap = new Dictionary<GameObject, Vector3>();
 
     // Collider Buffer for faster collision checking
     private Collider[] _buffer = new Collider[512];
@@ -20,21 +29,86 @@ public class VertexManager : MonoBehaviour
 	// Use this for initialization
 	private void Start()
     {
-        // find all initial vertices in the scene and add them to the map
+	}
+
+    public void DeferredStart()
+    {
         foreach (var gobj in GameObject.FindGameObjectsWithTag(VertexTag))
         {
             _vertexMap.Add(gobj, new List<GameObject>());
         }
-	}
+    }
 
 	// Update is called once per frame
 	private void Update()
     {
-        if (Input.GetKey(KeyCode.Space))
-        {
-            Debug.Log("space pressed");
-        }
 	}
+
+    public void DeferredUpdate()
+    {
+        foreach (var v in _vertexMap.Keys)
+        {
+            Vector3 nextDirection = Vector3.zero;
+            switch (v.GetComponent<Vertex>()._currentState)
+            {
+                case VertexState.Search:
+                    nextDirection += _searchSpeed * Search(v);
+                    break;
+                case VertexState.Optimize:
+                    nextDirection = _optimizeSpeed * Optimize(v);
+                    break;
+                case VertexState.Constrain:
+                    break;
+            }
+
+            _influenceMap[v] = nextDirection;
+        }
+
+        foreach (var v in _vertexMap)
+        {
+            Vector3 translation = _influenceMap[v.Key];
+
+            foreach (var e in v.Value)
+            {
+                switch (e.GetComponent<Vertex>()._currentState)
+                {
+                    case VertexState.Search:
+                        translation += _searchSpeed * _influenceMap[e];
+                        break;
+                    case VertexState.Optimize:
+                        translation += _optimizeSpeed * _influenceMap[e];
+                        break;
+                    case VertexState.Constrain:
+                        break;
+                }
+                translation += _influenceMap[e];
+            }
+
+            translation += Repulse(v.Key);
+
+            v.Key.transform.Translate(translation);
+        }
+    }
+
+    ///////// Functions related to modifying the graph
+
+    public void Add(GameObject vertex)
+    {
+        _vertexMap.Add(vertex, new List<GameObject>());
+    }
+
+    public void Remove(GameObject vertex)
+    {
+        _vertexMap.Remove(vertex);
+        foreach (var v in _vertexMap)
+        {
+            if (v.Value.Contains(vertex))
+            {
+                v.Value.Remove(vertex);
+            }
+        }
+        Destroy(vertex);
+    }
 
     ///////// Functions related to connecting vertices
 
@@ -46,6 +120,8 @@ public class VertexManager : MonoBehaviour
         {
             _vertexMap[v1].Add(v2);
             _vertexMap[v2].Add(v1);
+            _influenceMap.Add(v1, Vector3.zero);
+            _influenceMap.Add(v2, Vector3.zero);
 
             if (Degree(v1) == _desiredDegree)
             {
@@ -161,10 +237,10 @@ public class VertexManager : MonoBehaviour
                                 nextDirection += (c.transform.position - vertex.transform.position).normalized;
                             }
 
-                            // if they can connect, connect them
+                            // if they can connect, add them to the connection queue
                             else
                             {
-                                Connect(c.gameObject, vertex);
+                                _connectQueue.Enqueue(new KeyValuePair<GameObject, GameObject>(c.gameObject, vertex));
                             }
                         }
                     }
@@ -172,7 +248,7 @@ public class VertexManager : MonoBehaviour
             }
         }
 
-        return nextDirection;
+        return nextDirection.normalized;
     }
 
     private Vector3 Optimize(GameObject vertex)
@@ -194,7 +270,7 @@ public class VertexManager : MonoBehaviour
         }
 
         // add the vectors in-between
-        for (int i = 1; i < buffer.Count; i += 1)
+        for (int i = 0; i < buffer.Count - 1; i += 1)
         {
             possibleDirections.Add(((buffer[i] + buffer[i + 1]) * (1/2)).normalized);
         }
@@ -206,7 +282,10 @@ public class VertexManager : MonoBehaviour
             {
                 foreach (var v in possibleDirections)
                 {
-                    var angle = AngleRelative(vertex.transform.position + v, _vertexMap[vertex][i], _vertexMap[vertex][k]);
+                    var angle = AngleRelative(vertex.transform.position + v,
+                                              _vertexMap[vertex][i].transform.position,
+                                              _vertexMap[vertex][k].transform.position);
+
                     float diff = Mathf.Infinity;
                     foreach (var a in _desiredAngles)
                     {
@@ -224,7 +303,7 @@ public class VertexManager : MonoBehaviour
             }
         }
 
-        return nextDirection;
+        return nextDirection.normalized;
     }
 
     private Vector3 Constrain(GameObject vertex)
@@ -232,5 +311,20 @@ public class VertexManager : MonoBehaviour
         Vector3 nextDirection = Vector3.zero;
 
         return nextDirection;
+    }
+
+    private Vector3 Repulse(GameObject vertex)
+    {
+        Vector3 result = Vector3.zero;
+        int collisions = Physics.OverlapSphereNonAlloc(vertex.transform.position, vertex.GetComponent<Vertex>()._repulsionRadius, _buffer);
+        if (collisions > 0)
+        {
+            for (int i = 0; i < collisions; i += 1)
+            {
+                var v = _buffer[i].GetComponent<Transform>();
+                result += (vertex.transform.position - v.position);
+            }
+        }
+        return result.normalized * vertex.GetComponent<Vertex>()._repulsionStrength;
     }
 }

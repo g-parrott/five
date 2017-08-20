@@ -2,10 +2,11 @@ using UnityEngine;
 
 public class Vertex : MonoBehaviour
 {
-    public float _sightRadius;
-    public float _connectionRadius;
-    public float _connectionStrength;
-    public float _repulsionStrength;
+    public float _sightRadius = 10;
+    public float _connectionRadius = 2;
+    public float _connectionStrength = 1;
+    public float _repulsionRadius = 1;
+    public float _repulsionStrength = 1;
     public VertexState _currentState;
 
     private void Start()
