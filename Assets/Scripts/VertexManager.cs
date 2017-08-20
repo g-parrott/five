@@ -9,6 +9,8 @@ public class VertexManager : MonoBehaviour
     public float _searchSpeed = 1f;
     public float _optimizeSpeed = 1f;
 
+    public GameObject _edge;
+
     // for convenience and consistency, I store a string tag to grab all objects that are tagged with
     // "vertex"
     public const string VertexTag = "Vertex";
@@ -46,6 +48,7 @@ public class VertexManager : MonoBehaviour
 
     public void DeferredUpdate()
     {
+        // compute directions
         foreach (var v in _vertexMap.Keys)
         {
             Vector3 nextDirection = Vector3.zero;
@@ -64,6 +67,14 @@ public class VertexManager : MonoBehaviour
             _influenceMap[v] = nextDirection;
         }
 
+        // connect any gameobjects close enough to connect (in the _connectQueue)
+        while (_connectQueue.Count != 0)
+        {
+            var newEdge = _connectQueue.Dequeue();
+            Connect(newEdge.Key, newEdge.Value);
+        }
+
+        // translate the gameobjects
         foreach (var v in _vertexMap)
         {
             Vector3 translation = _influenceMap[v.Key];
@@ -86,7 +97,7 @@ public class VertexManager : MonoBehaviour
 
             translation += Repulse(v.Key);
 
-            v.Key.transform.Translate(translation);
+            v.Key.transform.Translate(translation * Time.deltaTime);
         }
     }
 
@@ -95,6 +106,7 @@ public class VertexManager : MonoBehaviour
     public void Add(GameObject vertex)
     {
         _vertexMap.Add(vertex, new List<GameObject>());
+        _influenceMap.Add(vertex, Vector3.zero);
     }
 
     public void Remove(GameObject vertex)
@@ -110,6 +122,23 @@ public class VertexManager : MonoBehaviour
         Destroy(vertex);
     }
 
+    // FUnctions related to accessing Vertex objects 
+
+    public List<GameObject> GetConnected(GameObject vertex)
+    {
+        return _vertexMap[vertex];
+    }
+
+    public GameObject GetRandomVertex()
+    {
+        foreach (var v in _vertexMap.Keys)
+        {
+            return v;
+        }
+
+        return null;
+    }
+
     ///////// Functions related to connecting vertices
 
     // connect two vertices
@@ -120,8 +149,6 @@ public class VertexManager : MonoBehaviour
         {
             _vertexMap[v1].Add(v2);
             _vertexMap[v2].Add(v1);
-            _influenceMap.Add(v1, Vector3.zero);
-            _influenceMap.Add(v2, Vector3.zero);
 
             if (Degree(v1) == _desiredDegree)
             {
@@ -132,6 +159,9 @@ public class VertexManager : MonoBehaviour
             {
                 ChangeState(v2, VertexState.Optimize);
             }
+
+            // make a visible edge
+            Instantiate<GameObject>(_edge, Vector3.zero, Quaternion.identity).GetComponent<Edge>().Init(v1, v2);
         }
     }
 
@@ -211,7 +241,6 @@ public class VertexManager : MonoBehaviour
         // if there are any, check if at least one of them is searching as well
         if (collisions > 0)
         {
-            GameObject toConnect = null;
             for (int i = 0; i < collisions; i += 1)
             {
                 // if we achieve the desired number of connections, this vertex is done searching
@@ -303,7 +332,7 @@ public class VertexManager : MonoBehaviour
             }
         }
 
-        return nextDirection.normalized;
+        return (nextDirection + new Vector3(0, 0, Random.value)).normalized;
     }
 
     private Vector3 Constrain(GameObject vertex)
@@ -322,7 +351,10 @@ public class VertexManager : MonoBehaviour
             for (int i = 0; i < collisions; i += 1)
             {
                 var v = _buffer[i].GetComponent<Transform>();
-                result += (vertex.transform.position - v.position);
+                if (v.tag == VertexTag)
+                {
+                    result += (vertex.transform.position - v.position);
+                }
             }
         }
         return result.normalized * vertex.GetComponent<Vertex>()._repulsionStrength;

@@ -24,9 +24,9 @@ public class Initializer : MonoBehaviour
             Debug.Log("Initializer Warning: No VertexManager has been assigned to this component. This script will break");
         }
 
-        //MakeParticleGrid(32, 32, 5);
+        MakeParticleGrid(32, 32, 2);
         //
-        MakeRandomMess(50, 10000);
+        //MakeRandomMess(20, 256);
 
        //_vertexManager.DeferredStart();
     }
